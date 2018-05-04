@@ -21,6 +21,8 @@ public interface ApplicationContainerProtocol extends VersionedProtocol {
 
   InputInfo[] getInputSplit(XLearningContainerId containerId);
 
+  S3InputInfo getS3InputSplit(XLearningContainerId containerId);
+
   InputSplit[] getStreamInputSplit(XLearningContainerId containerId);
 
   OutputInfo[] getOutputLocation();

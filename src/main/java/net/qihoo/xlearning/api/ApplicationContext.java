@@ -1,10 +1,7 @@
 package net.qihoo.xlearning.api;
 
-import net.qihoo.xlearning.common.InputInfo;
-import net.qihoo.xlearning.common.Message;
-import net.qihoo.xlearning.common.OutputInfo;
+import net.qihoo.xlearning.common.*;
 import net.qihoo.xlearning.container.XLearningContainerId;
-import net.qihoo.xlearning.common.XLearningContainerStatus;
 import org.apache.hadoop.yarn.api.records.ApplicationId;
 import org.apache.hadoop.yarn.api.records.Container;
 import org.apache.hadoop.mapred.InputSplit;
@@ -30,6 +27,8 @@ public interface ApplicationContext {
   XLearningContainerStatus getContainerStatus(XLearningContainerId containerId);
 
   List<InputInfo> getInputs(XLearningContainerId containerId);
+
+  S3InputInfo getS3Input(XLearningContainerId containerId);
 
   List<InputSplit> getStreamInputs(XLearningContainerId containerId);
 

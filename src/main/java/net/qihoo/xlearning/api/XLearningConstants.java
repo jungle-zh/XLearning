@@ -70,7 +70,10 @@ public interface XLearningConstants {
 
     APP_ID("APP_ID"),
 
+    USE_S3("USE_S3"),
+
     APP_ATTEMPTID("APP_ATTEMPTID");
+
 
     private final String variable;
 

@@ -551,6 +551,12 @@ public class ApplicationContainerListener extends AbstractService implements App
     int inputInfoSize = applicationContext.getInputs(containerId).size();
     return applicationContext.getInputs(containerId).toArray(new InputInfo[inputInfoSize]);
   }
+  @Override
+  public S3InputInfo getS3InputSplit(XLearningContainerId containerId) {
+    //int inputInfoSize = applicationContext.getInputs(containerId).size();
+    //return applicationContext.getInputs(containerId).toArray(new InputInfo[inputInfoSize]);
+    return applicationContext.getS3Input(containerId);
+  }
 
   @Override
   public InputSplit[] getStreamInputSplit(XLearningContainerId containerId) {

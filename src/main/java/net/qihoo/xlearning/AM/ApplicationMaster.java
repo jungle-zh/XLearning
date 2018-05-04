@@ -1,5 +1,9 @@
 package net.qihoo.xlearning.AM;
 
+import com.amazonaws.services.s3.AmazonS3;
+import com.amazonaws.services.s3.AmazonS3ClientBuilder;
+import com.amazonaws.services.s3.model.ListObjectsV2Result;
+import com.amazonaws.services.s3.model.S3ObjectSummary;
 import com.google.gson.Gson;
 import net.qihoo.xlearning.api.ApplicationContext;
 import net.qihoo.xlearning.api.XLearningConstants;
@@ -86,6 +90,9 @@ public class ApplicationMaster extends CompositeService {
   private final LinkedBlockingQueue<Message> applicationMessageQueue;
   private final List<OutputInfo> outputInfos;
   private ConcurrentHashMap<String, List<FileStatus>> input2FileStatus;
+  //private S3InputInfo s3InputInfo;
+  private ConcurrentHashMap<XLearningContainerId, S3InputInfo> containerId2S3InputInfo;
+  private List<S3ObjectEntry> s3ObjectEntrys;
   private ConcurrentHashMap<XLearningContainerId, List<InputInfo>> containerId2InputInfo;
   private InputSplit[] inputFileSplits;
   private ConcurrentHashMap<XLearningContainerId, List<InputSplit>> containerId2InputSplit;
@@ -435,6 +442,62 @@ public class ApplicationMaster extends CompositeService {
     Runtime.getRuntime().addShutdownHook(cleanApplication);
   }
 
+
+  private void buildS3InputFileStatus(){  //todo
+    String xlearningInputs = envs.get(XLearningConstants.Environment.XLEARNING_INPUTS.toString());
+    if (StringUtils.isBlank(xlearningInputs)) {
+      LOG.info("Application has no inputs");
+      return;
+    }
+
+    String[] inputs = StringUtils.split(xlearningInputs, "|");
+    //node  , bucketName and aliasDir must be the same
+    if(inputs.length != 1){
+      LOG.error("xlearningInputs length is not 1");
+      return;
+    }
+    //model-data1/test/data#data
+
+    LOG.info("#### input path : " + inputs[0]);
+    if (inputs != null && inputs.length > 0) {
+
+      String[] inputPathTuple = StringUtils.split(inputs[0], "#");
+      if (inputPathTuple.length < 2) {
+        throw new RuntimeException("Error input path format " + xlearningInputs);
+      }
+      String  bucketName2prefix = inputPathTuple[0];
+      String[]  tmp = bucketName2prefix.split("/");
+      String bucketName = tmp[0];
+      String prefix = "";
+      for(int i=1;i< tmp.length;++i){
+        prefix += tmp[i];
+        if(i != tmp.length -1 ){
+          prefix += "/";
+        }
+      }
+      String  aliasDir = inputPathTuple[1];
+
+      LOG.info("bucketName :" + bucketName + ", prefix:" + prefix);
+
+      final AmazonS3 s3 = AmazonS3ClientBuilder.defaultClient();
+
+      ListObjectsV2Result result = s3.listObjectsV2(bucketName,prefix);
+      List<S3ObjectSummary> objects = result.getObjectSummaries();
+      s3ObjectEntrys = new ArrayList<S3ObjectEntry>();
+      for (S3ObjectSummary os: objects) {
+        System.out.println("--> " + os.getKey());
+        S3ObjectEntry entry = new S3ObjectEntry(bucketName,os.getKey(),aliasDir);
+        s3ObjectEntrys.add(entry);
+      }
+
+      //s3InputInfo = new S3InputInfo(bucketName,aliasDir,keys);
+      for(S3ObjectEntry entry:s3ObjectEntrys  ){
+        LOG.info(" => " + entry.toString());
+      }
+
+    }
+
+  }
   private void buildInputFileStatus() {
     String xlearningInputs = envs.get(XLearningConstants.Environment.XLEARNING_INPUTS.toString());
     if (StringUtils.isBlank(xlearningInputs)) {
@@ -453,6 +516,17 @@ public class ApplicationMaster extends CompositeService {
         String inputPathRemote = inputPathTuple[0];
         if (!StringUtils.isBlank(inputPathRemote)) {
           for (String singlePath : StringUtils.split(inputPathRemote, ",")) {
+
+            try {
+              FileStatus[] status = FileSystem.get(conf).globStatus(new Path(singlePath));
+              for(int i =0 ;i< status.length ;++i){
+                LOG.info(status[i].toString());
+              }
+              fileStatus.addAll(Arrays.asList(status));
+            } catch (IOException e) {
+              e.printStackTrace();
+            }
+            /*
             Path inputPath = new Path(singlePath);
             try {
               inputPath = inputPath.getFileSystem(conf).makeQualified(inputPath);
@@ -463,6 +537,7 @@ public class ApplicationMaster extends CompositeService {
             } catch (IOException e) {
               e.printStackTrace();
             }
+            */
           }
           input2FileStatus.put(inputPathTuple[1], fileStatus);
           if (fileStatus.size() > 0) {
@@ -501,6 +576,27 @@ public class ApplicationMaster extends CompositeService {
     }
   }
 
+
+  private void allocateS3InputSplits(){
+
+    containerId2S3InputInfo = new ConcurrentHashMap<XLearningContainerId, S3InputInfo>();
+    int entryIndex = 0 ;
+    for (Container container : acquiredWorkerContainers) {
+      LOG.info("Initializing " + container.getId().toString() + " input splits");
+      containerId2S3InputInfo.putIfAbsent(new XLearningContainerId(container.getId()), new S3InputInfo());
+    }
+    for(S3ObjectEntry entry : s3ObjectEntrys){
+      int containerIndex =  entryIndex % acquiredWorkerContainers.size();
+      XLearningContainerId containerId = new XLearningContainerId(acquiredWorkerContainers.get(containerIndex).getId());
+      LOG.info("containerId : " + containerId + " add path :" + entry.getPath() ) ;
+      containerId2S3InputInfo.get(containerId).getPaths().add(entry.getPath());
+      containerId2S3InputInfo.get(containerId).setAliasName(entry.getAliaseDir());
+      containerId2S3InputInfo.get(containerId).setBucket(entry.getBucket());
+      entryIndex ++;
+    }
+
+
+  }
   @SuppressWarnings("deprecation")
   private void allocateInputSplits() {
 
@@ -733,6 +829,9 @@ public class ApplicationMaster extends CompositeService {
     containerEnv.put(XLearningConstants.Environment.XLEARNING_TF_ROLE.toString(), role);
     containerEnv.put(XLearningConstants.Environment.XLEARNING_EXEC_CMD.toString(), xlearningCommand);
     containerEnv.put(XLearningConstants.Environment.XLEARNING_APP_TYPE.toString(), xlearningAppType);
+    if(envs.get(XLearningConstants.Environment.USE_S3.toString()).equalsIgnoreCase("yes")){
+      containerEnv.put(XLearningConstants.Environment.USE_S3.toString(), "yes");
+    }
     if (xlearningAppType.equals("MXNET") && !singleMx) {
       containerEnv.put(XLearningConstants.Environment.XLEARNING_MXNET_WORKER_NUM.toString(), String.valueOf(workerNum));
       containerEnv.put(XLearningConstants.Environment.XLEARNING_MXNET_SERVER_NUM.toString(), String.valueOf(psNum));
@@ -855,7 +954,12 @@ public class ApplicationMaster extends CompositeService {
     if (conf.get(XLearningConfiguration.XLEARNING_INPUT_STRATEGY, XLearningConfiguration.DEFAULT_XLEARNING_INPUT_STRATEGY).equals("STREAM")) {
       buildInputStreamFileStatus();
     } else {
-      buildInputFileStatus();
+      if(envs.get(XLearningConstants.Environment.USE_S3.toString()).equalsIgnoreCase("yes")){
+        buildS3InputFileStatus();
+      }else {
+        buildInputFileStatus();
+      }
+
     }
 
     if ("TENSORFLOW".equals(xlearningAppType) || "MXNET".equals(xlearningAppType)) {
@@ -1133,11 +1237,18 @@ public class ApplicationMaster extends CompositeService {
     }
 
 
+
     if (conf.get(XLearningConfiguration.XLEARNING_INPUT_STRATEGY, XLearningConfiguration.DEFAULT_XLEARNING_INPUT_STRATEGY).equals("STREAM")) {
       allocateInputStreamSplits();
     } else {
-      allocateInputSplits();
+      if(envs.get(XLearningConstants.Environment.USE_S3.toString()).equalsIgnoreCase("yes")){
+        allocateS3InputSplits();
+      }else {
+        allocateInputSplits();
+      }
+
     }
+
     buildOutputLocations();
     buildContainerLocalResource();
     Map<String, String> workerContainerEnv = buildContainerEnv(XLearningConstants.WORKER);
@@ -1385,6 +1496,16 @@ public class ApplicationMaster extends CompositeService {
         return new ArrayList<InputInfo>();
       }
       return containerId2InputInfo.get(containerId);
+    }
+    @Override
+    public S3InputInfo getS3Input(XLearningContainerId containerId){
+
+      if (!containerId2S3InputInfo.containsKey(containerId)) {
+        LOG.info("containerId2S3InputInfo not contains" + containerId.getContainerId());
+        return new  S3InputInfo();
+      }
+      return containerId2S3InputInfo.get(containerId) ;
+
     }
 
     @Override

@@ -31,6 +31,7 @@ class ClientArguments {
   String inputStrategy;
   String outputStrategy;
   Properties inputs;
+  String useS3;
   Properties outputs;
   String xlearningCacheFiles;
   String xlearningCacheArchives;
@@ -287,6 +288,9 @@ class ClientArguments {
 
     if (cliParser.hasOption("input")) {
       inputs = cliParser.getOptionProperties("input");
+    }
+    if (cliParser.hasOption("use-s3")) {
+      useS3 = cliParser.getOptionValue("use-s3");
     }
 
     if (cliParser.hasOption("input-strategy")) {

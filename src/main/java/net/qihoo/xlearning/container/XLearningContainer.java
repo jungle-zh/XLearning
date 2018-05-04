@@ -5,10 +5,7 @@ import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
 import net.qihoo.xlearning.api.ApplicationContainerProtocol;
 import net.qihoo.xlearning.api.XLearningConstants;
-import net.qihoo.xlearning.common.InputInfo;
-import net.qihoo.xlearning.common.OutputInfo;
-import net.qihoo.xlearning.common.XLearningContainerStatus;
-import net.qihoo.xlearning.common.TextMultiOutputFormat;
+import net.qihoo.xlearning.common.*;
 import net.qihoo.xlearning.conf.XLearningConfiguration;
 import net.qihoo.xlearning.util.Utilities;
 import org.apache.commons.lang.StringUtils;
@@ -24,6 +21,14 @@ import org.apache.hadoop.yarn.util.ConverterUtils;
 import org.apache.hadoop.io.Text;
 import org.apache.hadoop.mapred.*;
 import org.apache.hadoop.util.ReflectionUtils;
+
+import com.amazonaws.AmazonServiceException;
+import com.amazonaws.services.s3.AmazonS3;
+import com.amazonaws.services.s3.AmazonS3ClientBuilder;
+import com.amazonaws.services.s3.model.ListObjectsV2Result;
+import com.amazonaws.services.s3.model.S3Object;
+import com.amazonaws.services.s3.model.S3ObjectInputStream;
+import com.amazonaws.services.s3.model.S3ObjectSummary;
 
 import java.io.*;
 import java.lang.reflect.Field;
@@ -167,6 +172,59 @@ public class XLearningContainer {
     return this.containerId;
   }
 
+
+  private class S3DownLoadTask implements  Runnable {
+
+    private final String s3key;
+    private final String s3bucket;
+    private final String downloadDst;
+
+
+    S3DownLoadTask(String s3key,String s3bucket, String downloadDst) throws IOException {
+      this.s3key = s3key;
+      this.s3bucket = s3bucket;
+      this.downloadDst = downloadDst;
+    }
+
+    public  void getObject(String bucket_name,String key_name){
+      try {
+
+        final AmazonS3 s3 = AmazonS3ClientBuilder.defaultClient();
+        S3Object o = s3.getObject(bucket_name, key_name);
+        S3ObjectInputStream s3is = o.getObjectContent();
+
+        File exist = new File(downloadDst);
+        if (exist.exists()) {
+          exist.delete();
+        }
+
+        FileOutputStream fos = new FileOutputStream(downloadDst);
+        byte[] read_buf = new byte[1024];
+        int read_len = 0;
+        while ((read_len = s3is.read(read_buf)) > 0) {
+          fos.write(read_buf, 0, read_len);
+        }
+        s3is.close();
+        fos.close();
+      } catch (AmazonServiceException e) {
+        System.err.println(e.getErrorMessage());
+        System.exit(1);
+      } catch (FileNotFoundException e) {
+        System.err.println(e.getMessage());
+        System.exit(1);
+      } catch (IOException e) {
+        System.err.println(e.getMessage());
+        System.exit(1);
+      }
+    }
+    @Override
+    public void run() {
+
+      getObject(s3bucket,s3key);
+
+    }
+  }
+
   private class DownLoadTask implements Runnable {
 
     private final Path downloadSrc;
@@ -221,6 +279,54 @@ public class XLearningContainer {
     }
   }
 
+  private void prepareS3InputFile() throws IOException {
+
+    //List<InputInfo> inputs = Arrays.asList(amClient.getInputSplit(containerId));
+    S3InputInfo inputs = amClient.getS3InputSplit(containerId);
+    if (inputs.getPaths().size() == 0) {
+      LOG.info("Current container has no input.");
+      return;
+    }
+    LOG.info("Input path: " + inputs.getAliasName() + "@" + inputs.getPaths().toString());
+
+
+    ExecutorService executor = Executors.newFixedThreadPool(
+            conf.getInt(XLearningConfiguration.XLEARNING_DOWNLOAD_FILE_THREAD_NUMS, XLearningConfiguration.DEFAULT_XLEARNING_DOWNLOAD_FILE_THREAD_NUMS),
+            new ThreadFactoryBuilder()
+                    .setDaemon(true)
+                    .setNameFormat("Download-File-Thread #%d")
+                    .build()
+    );
+
+    String downloadDir = inputs.getAliasName();
+    Utilities.mkdirs(downloadDir.toString());
+    int index = 0;
+    String bucket = inputs.getBucket();
+    for (String  s3key : inputs.getPaths()) {
+      String downloadDst;
+
+      downloadDst = downloadDir + File.separator +  index++ + ".csv" ;
+      LOG.info("container id is : " + containerId.toString()  + " downloadDst is :" + downloadDst + " s3key :" + s3key);
+
+      S3DownLoadTask downloadTask = new S3DownLoadTask( s3key, bucket , downloadDst);
+      executor.submit(downloadTask);
+    }
+
+
+
+    boolean allDownloadTaskFinished = false;
+    executor.shutdown();
+    do {
+      try {
+        executor.awaitTermination(Integer.MAX_VALUE, TimeUnit.SECONDS);
+        allDownloadTaskFinished = true;
+      } catch (InterruptedException e) {
+      }
+    } while (!allDownloadTaskFinished);
+    LOG.info("All input files download finished.");
+
+  }
+
   @SuppressWarnings("deprecation")
   private void prepareInputFiles() throws IOException, InterruptedException,
       ExecutionException {
@@ -266,12 +372,16 @@ public class XLearningContainer {
         int index = 0;
         for (Path path : inputInfo.getPaths()) {
           String downloadDst;
+          /*
           if (conf.getBoolean(XLearningConfiguration.XLEARNING_INPUTFILE_RENAME, XLearningConfiguration.DEFAULT_XLEARNING_INPUTFILE_RENAME)) {
             downloadDst = downloadDir + File.separator + System.currentTimeMillis() + "_" + index++;
           } else {
             String[] fileName = StringUtils.split(path.toString(), '/');
             downloadDst = downloadDir + File.separator + fileName[fileName.length - 1];
           }
+          */
+          downloadDst = downloadDir + File.separator +  index++ + ".csv" ;
+          LOG.info("downloadDst is :" + downloadDst);
           DownLoadTask downloadTask = new DownLoadTask(path, downloadDst);
           executor.submit(downloadTask);
         }
@@ -399,15 +509,19 @@ public class XLearningContainer {
   private Boolean run() throws IOException {
     try {
       if (this.role.equals(XLearningConstants.WORKER)) {
-        prepareInputFiles();
+        if(envs.get(XLearningConstants.Environment.USE_S3.toString()).equalsIgnoreCase("yes")){
+          LOG.info("container " + containerId.toString() + " download from s3");
+          prepareS3InputFile();
+        }else {
+          LOG.info("container " + containerId.toString() + " download from hdfs");
+          prepareInputFiles();
+        }
+
       }
       if (this.conf.getBoolean(XLearningConfiguration.XLEARNING_CONTAINER_AUTO_CREATE_OUTPUT_DIR, XLearningConfiguration.DEFAULT_XLEARNING_CONTAINER_AUTO_CREATE_OUTPUT_DIR)) {
         createLocalOutputDir();
       }
-    } catch (InterruptedException e) {
-      LOG.error("Container prepare inputs failed!", e);
-      this.reportFailedAndExit();
-    } catch (ExecutionException e) {
+    } catch (Exception e) {
       LOG.error("Container prepare inputs failed!", e);
       this.reportFailedAndExit();
     }

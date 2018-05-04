@@ -99,7 +99,7 @@
     </property>
     <property>
         <name>xlearning.inputfile.rename</name>
-        <value>false</value>
+        <value>true</value>
     </property>
     <property>
         <name>xlearning.download.file.retry</name>

@@ -185,6 +185,7 @@ public class Client {
   @SuppressWarnings("unchecked")
   private void assignInput() throws IOException {
     Enumeration<String> inputs = (Enumeration<String>) clientArguments.inputs.propertyNames();
+
     while (inputs.hasMoreElements()) {
       String inputRemote = inputs.nextElement();
       String inputLocal = clientArguments.inputs.getProperty(inputRemote);
@@ -193,9 +194,12 @@ public class Client {
       }
       for (String pathdir : StringUtils.split(inputRemote, ",")) {
         Path path = new Path(pathdir);
+        LOG.info("input path is :" + pathdir);
+        /*
         if (!path.getFileSystem(conf).exists(path)) {
           throw new IOException("Input path " + path + " not existed!");
         }
+        */
       }
       if (inputPaths.containsKey(inputLocal)) {
         inputPaths.put(inputLocal, inputPaths.get(inputLocal) + "," + inputRemote);
@@ -205,6 +209,9 @@ public class Client {
       LOG.info("Local input path: " + inputLocal + " and remote input path: " + inputRemote);
     }
   }
+
+
+
 
   private static ApplicationReport getApplicationReport(ApplicationId appId, YarnClient yarnClient)
       throws YarnException, IOException {
@@ -406,6 +413,8 @@ public class Client {
 
     LOG.info("Building environments for the application master");
     Map<String, String> appMasterEnv = new HashMap<>();
+    appMasterEnv.put(XLearningConstants.Environment.USE_S3.toString(),clientArguments.useS3);
+
     if (clientArguments.appType != null && !clientArguments.appType.equals("")) {
       appMasterEnv.put(XLearningConstants.Environment.XLEARNING_APP_TYPE.toString(), clientArguments.appType);
     } else {
