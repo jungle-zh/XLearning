@@ -96,6 +96,7 @@ class ClientArguments {
     outputStrategy = XLearningConfiguration.DEFAULT_XLEARNING_OUTPUT_STRATEGY.toUpperCase();
 
     allOptions = new Options();
+    allOptions.addOption("useS3", "use-s3",true,"set the s3 option");
     allOptions.addOption("appName", "app-name", true,
         "set the Application name");
     allOptions.addOption("appType", "app-type", true,

@@ -1,5 +1,13 @@
 package net.qihoo.xlearning.container;
 
+import com.amazonaws.ClientConfiguration;
+import com.amazonaws.Protocol;
+import com.amazonaws.auth.AWSCredentials;
+import com.amazonaws.auth.AWSStaticCredentialsProvider;
+import com.amazonaws.auth.BasicAWSCredentials;
+import com.amazonaws.regions.Region;
+import com.amazonaws.regions.Regions;
+import com.amazonaws.services.s3.AmazonS3Client;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
@@ -82,6 +90,8 @@ public class XLearningContainer {
 
   private String xlearningCmdProcessId;
 
+  public AmazonS3 s3;
+
   private XLearningContainer() {
     this.conf = new XLearningConfiguration();
     conf.addResource(new Path(XLearningConstants.XLEARNING_JOB_CONFIGURATION));
@@ -158,6 +168,8 @@ public class XLearningContainer {
         reportFailedAndExit();
       }
     }
+
+    s3 = getS3Client();
   }
 
   public Configuration getConf() {
@@ -189,7 +201,7 @@ public class XLearningContainer {
     public  void getObject(String bucket_name,String key_name){
       try {
 
-        final AmazonS3 s3 = AmazonS3ClientBuilder.defaultClient();
+        //final AmazonS3 s3 = AmazonS3ClientBuilder.defaultClient();
         S3Object o = s3.getObject(bucket_name, key_name);
         S3ObjectInputStream s3is = o.getObjectContent();
 
@@ -423,7 +435,71 @@ public class XLearningContainer {
     }
   }
 
+  private AmazonS3 getS3Client(){
+
+    AWSCredentials credentials=new BasicAWSCredentials("AKIAORUE3ZAU6TNP6LAA","si6vY/70b2CA57kBbvX2BGWJoJJcc4PvWsKgYTN8");
+
+    AmazonS3 client =
+            AmazonS3ClientBuilder.standard().withRegion("cn-northwest-1").withCredentials(new AWSStaticCredentialsProvider(credentials)).build();
+
+    return client;
+  }
+
   @SuppressWarnings("deprecation")
+  private void uploadS3OutputFiles() throws  IOException {
+
+    List<OutputInfo> outputs = Arrays.asList(amClient.getOutputLocation());
+    for (OutputInfo s : outputs) {
+      LOG.info("s3 Output  path: " + s.getLocalLocation() + "#" + s.getDfsLocation());
+    }
+    //final AmazonS3 s3 = AmazonS3ClientBuilder.defaultClient();
+
+
+    if (outputs.size() > 0) {
+      for (OutputInfo outputInfo : outputs) {
+        //FileSystem localFs = FileSystem.getLocal(conf);
+        //Path localPath = new Path(outputInfo.getLocalLocation());
+        /*Path remotePath = new Path(outputInfo.getDfsLocation() + "/_temporary/" + containerId.toString());
+        FileSystem dfs = remotePath.getFileSystem(conf);
+        if (dfs.exists(remotePath)) {
+          LOG.info("Container remote output path " + remotePath + "exists, so we has to delete is first.");
+          dfs.delete(remotePath);
+        }
+        */
+        String bucket_name = "" ;
+        String key_name = "" ;
+        String[] s3path = outputInfo.getDfsLocation().split("/");
+        bucket_name = s3path[0];
+        for(int i =1 ;i< s3path.length ; ++i){
+          key_name += s3path[i];
+          key_name += "/";
+        }
+        key_name += containerId.toString();
+
+        LOG.info("bucket_name : " + bucket_name + " key_name:" +key_name);
+
+        File file = new File(outputInfo.getLocalLocation());
+        File[] fileList = file.listFiles();
+        for(int i=0;i<fileList.length ;++i){
+          try {
+
+            LOG.info("### upload info bucket:" + bucket_name + ", key_name:"+key_name + "/" + fileList[i].getName() + ", local file:"+fileList[i].getAbsoluteFile());
+            s3.putObject(bucket_name, key_name + "/" + fileList[i].getName(), fileList[i].getAbsoluteFile());
+
+          } catch (AmazonServiceException e) {
+            System.err.println(e.getErrorMessage());
+            System.exit(1);
+          }
+
+        }
+
+
+        //localFs.close();
+      }
+    }
+
+
+  }
   private void uploadOutputFiles() throws IOException {
     if (this.conf.get(XLearningConfiguration.XLEARNING_OUTPUT_STRATEGY, XLearningConfiguration.DEFAULT_XLEARNING_OUTPUT_STRATEGY).equals("STREAM")) {
       LOG.info("XLEARNING_OUTPUT_STRATEGY is STREAM, do not need to upload local output files.");
@@ -980,7 +1056,11 @@ public class XLearningContainer {
     }
     //As role is worker
     if (code == 0) {
-      this.uploadOutputFiles();
+      if(envs.get(XLearningConstants.Environment.USE_S3.toString()).equalsIgnoreCase("yes")){
+        this.uploadS3OutputFiles();
+      }else {
+        this.uploadOutputFiles();
+      }
     } else {
       return false;
     }
@@ -1017,6 +1097,10 @@ public class XLearningContainer {
     } catch (Exception e) {
       LOG.error("Some errors has occurred during container running!", e);
       container.reportFailedAndExit();
+    }finally {
+      if(container.s3 != null){
+         container.s3.shutdown();
+      }
     }
   }
 }

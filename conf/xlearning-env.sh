@@ -26,7 +26,8 @@ export XLEARNING_HOME="$(cd "`dirname "$0"`"/..; pwd)"
 # export JAVA_HOME=
 
 # Set Hadoop-specific environment variables here.
-# export HADOOP_CONF_DIR=
+export HADOOP_CONF_DIR=/etc/hadoop/conf
+export HADOOP_HOME=/usr/lib/hadoop
 
 export XLEARNING_CONF_DIR=$XLEARNING_HOME/conf/
 export XLEARNING_CLASSPATH="$XLEARNING_CONF_DIR:$HADOOP_CONF_DIR"

@@ -1,6 +1,15 @@
 package net.qihoo.xlearning.AM;
 
+import com.amazonaws.ClientConfiguration;
+import com.amazonaws.Protocol;
+import com.amazonaws.auth.AWSCredentials;
+import com.amazonaws.auth.AWSCredentialsProvider;
+import com.amazonaws.auth.AWSStaticCredentialsProvider;
+import com.amazonaws.auth.BasicAWSCredentials;
+import com.amazonaws.regions.Region;
+import com.amazonaws.regions.Regions;
 import com.amazonaws.services.s3.AmazonS3;
+import com.amazonaws.services.s3.AmazonS3Client;
 import com.amazonaws.services.s3.AmazonS3ClientBuilder;
 import com.amazonaws.services.s3.model.ListObjectsV2Result;
 import com.amazonaws.services.s3.model.S3ObjectSummary;
@@ -91,6 +100,7 @@ public class ApplicationMaster extends CompositeService {
   private final List<OutputInfo> outputInfos;
   private ConcurrentHashMap<String, List<FileStatus>> input2FileStatus;
   //private S3InputInfo s3InputInfo;
+  public AmazonS3 s3 ;
   private ConcurrentHashMap<XLearningContainerId, S3InputInfo> containerId2S3InputInfo;
   private List<S3ObjectEntry> s3ObjectEntrys;
   private ConcurrentHashMap<XLearningContainerId, List<InputInfo>> containerId2InputInfo;
@@ -239,8 +249,21 @@ public class ApplicationMaster extends CompositeService {
     this.savingModelList = new ArrayList<>();
   }
 
+  private AmazonS3 getS3Client(){
+
+
+    AWSCredentials credentials=new BasicAWSCredentials("AKIAORUE3ZAU6TNP6LAA","si6vY/70b2CA57kBbvX2BGWJoJJcc4PvWsKgYTN8");
+
+    AmazonS3 client =
+            AmazonS3ClientBuilder.standard().withRegion("cn-northwest-1").withCredentials(new AWSStaticCredentialsProvider(credentials)).build();
+
+
+    return client;
+  }
   private void init() {
     appendMessage(new Message(LogType.STDERR, "ApplicationMaster starting services"));
+
+    s3 = getS3Client();
 
     this.rmCallbackHandler = new RMCallbackHandler();
     this.amrmAsync = AMRMClientAsync.createAMRMClientAsync(1000, rmCallbackHandler);
@@ -479,7 +502,9 @@ public class ApplicationMaster extends CompositeService {
 
       LOG.info("bucketName :" + bucketName + ", prefix:" + prefix);
 
-      final AmazonS3 s3 = AmazonS3ClientBuilder.defaultClient();
+      //final AmazonS3 s3 = AmazonS3ClientBuilder.defaultClient();
+
+
 
       ListObjectsV2Result result = s3.listObjectsV2(bucketName,prefix);
       List<S3ObjectSummary> objects = result.getObjectSummaries();
@@ -1405,22 +1430,26 @@ public class ApplicationMaster extends CompositeService {
           fs.createNewFile(new Path(outputInfos.get(0).getDfsLocation() + "/_SUCCESS"));
           fs.close();
         } else {
-          for (OutputInfo outputInfo : outputInfos) {
-            FileSystem fs = new Path(outputInfo.getDfsLocation()).getFileSystem(conf);
-            Path finalResultPath = new Path(outputInfo.getDfsLocation());
-            for (Container finishedContainer : acquiredWorkerContainers) {
-              Path tmpResultPath = new Path(outputInfo.getDfsLocation() + "/_temporary/" + finishedContainer.getId().toString());
-              if (fs.exists(tmpResultPath)) {
-                LOG.info("Move from " + tmpResultPath.toString() + " to " + finalResultPath);
-                fs.rename(tmpResultPath, finalResultPath);
+          if(envs.get(XLearningConstants.Environment.USE_S3.toString()).equalsIgnoreCase("yes")){
+            LOG.info("all container upload model to s3...");
+          } else {
+            for (OutputInfo outputInfo : outputInfos) {
+              FileSystem fs = new Path(outputInfo.getDfsLocation()).getFileSystem(conf);
+              Path finalResultPath = new Path(outputInfo.getDfsLocation());
+              for (Container finishedContainer : acquiredWorkerContainers) {
+                Path tmpResultPath = new Path(outputInfo.getDfsLocation() + "/_temporary/" + finishedContainer.getId().toString());
+                if (fs.exists(tmpResultPath)) {
+                  LOG.info("Move from " + tmpResultPath.toString() + " to " + finalResultPath);
+                  fs.rename(tmpResultPath, finalResultPath);
+                }
               }
+              Path tmpPath = new Path(outputInfo.getDfsLocation() + "/_temporary/");
+              if (fs.exists(tmpPath)) {
+                fs.delete(tmpPath, true);
+              }
+              fs.createNewFile(new Path(outputInfo.getDfsLocation() + "/_SUCCESS"));
+              fs.close();
             }
-            Path tmpPath = new Path(outputInfo.getDfsLocation() + "/_temporary/");
-            if (fs.exists(tmpPath)) {
-              fs.delete(tmpPath, true);
-            }
-            fs.createNewFile(new Path(outputInfo.getDfsLocation() + "/_SUCCESS"));
-            fs.close();
           }
         }
       }
@@ -1589,7 +1618,7 @@ public class ApplicationMaster extends CompositeService {
    * @param args Command line args
    */
   public static void main(String[] args) {
-    ApplicationMaster appMaster;
+    ApplicationMaster appMaster = null;
     try {
       appMaster = new ApplicationMaster();
       appMaster.init();
@@ -1603,6 +1632,10 @@ public class ApplicationMaster extends CompositeService {
     } catch (Exception e) {
       LOG.fatal("Error running ApplicationMaster", e);
       System.exit(1);
+    }finally {
+      if(appMaster.s3 != null){
+        appMaster.s3.shutdown();
+      }
     }
   }
 
