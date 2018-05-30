@@ -1,13 +1,13 @@
 package net.qihoo.xlearning.container;
 
-import com.amazonaws.ClientConfiguration;
-import com.amazonaws.Protocol;
+import com.amazonaws.AmazonServiceException;
 import com.amazonaws.auth.AWSCredentials;
 import com.amazonaws.auth.AWSStaticCredentialsProvider;
 import com.amazonaws.auth.BasicAWSCredentials;
-import com.amazonaws.regions.Region;
-import com.amazonaws.regions.Regions;
-import com.amazonaws.services.s3.AmazonS3Client;
+import com.amazonaws.services.s3.AmazonS3;
+import com.amazonaws.services.s3.AmazonS3ClientBuilder;
+import com.amazonaws.services.s3.model.S3Object;
+import com.amazonaws.services.s3.model.S3ObjectInputStream;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
@@ -16,27 +16,18 @@ import net.qihoo.xlearning.api.XLearningConstants;
 import net.qihoo.xlearning.common.*;
 import net.qihoo.xlearning.conf.XLearningConfiguration;
 import net.qihoo.xlearning.util.Utilities;
-import org.apache.commons.lang.StringUtils;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.io.IOUtils;
-import org.apache.hadoop.ipc.RPC;
-import org.apache.hadoop.yarn.api.ApplicationConstants;
-import org.apache.hadoop.yarn.util.ConverterUtils;
 import org.apache.hadoop.io.Text;
+import org.apache.hadoop.ipc.RPC;
 import org.apache.hadoop.mapred.*;
 import org.apache.hadoop.util.ReflectionUtils;
-
-import com.amazonaws.AmazonServiceException;
-import com.amazonaws.services.s3.AmazonS3;
-import com.amazonaws.services.s3.AmazonS3ClientBuilder;
-import com.amazonaws.services.s3.model.ListObjectsV2Result;
-import com.amazonaws.services.s3.model.S3Object;
-import com.amazonaws.services.s3.model.S3ObjectInputStream;
-import com.amazonaws.services.s3.model.S3ObjectSummary;
+import org.apache.hadoop.yarn.api.ApplicationConstants;
+import org.apache.hadoop.yarn.util.ConverterUtils;
 
 import java.io.*;
 import java.lang.reflect.Field;
@@ -45,9 +36,9 @@ import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.net.UnknownHostException;
+import java.text.SimpleDateFormat;
 import java.util.*;
 import java.util.concurrent.*;
-import java.text.SimpleDateFormat;
 import java.util.zip.GZIPOutputStream;
 
 public class XLearningContainer {
@@ -718,6 +709,8 @@ public class XLearningContainer {
             XLearningConstants.Environment.XLEARNING_INPUT_FILE_LIST.toString() + "=" + this.inputFileList
         };
       } else if (xlearningAppType.equals("DISTLIGHTGBM")) {
+
+        LOG.info("set DISTLIGHTGBM env");
         env = new String[]{
             "PATH=" + System.getenv("PATH"),
             "JAVA_HOME=" + System.getenv("JAVA_HOME"),
@@ -773,6 +766,9 @@ public class XLearningContainer {
 
     String command = envs.get(XLearningConstants.Environment.XLEARNING_EXEC_CMD.toString());
     LOG.info("Executing command:" + command);
+    for(int i=0;i<env.length; ++i){
+      LOG.info("env value:" + env[i]);
+    }
     Runtime rt = Runtime.getRuntime();
 
     //close reserved socket as tf will bind this port later
