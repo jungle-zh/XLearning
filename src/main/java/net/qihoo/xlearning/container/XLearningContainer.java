@@ -678,7 +678,25 @@ public class XLearningContainer {
             XLearningConstants.Environment.XLEARNING_INPUT_FILE_LIST.toString() + "=" + this.inputFileList
         };
       }
-    } else if (xlearningAppType.equals("MXNET")) {
+    } else if (xlearningAppType.equals("DISTLIGHTGBM")) {
+
+      LOG.info("set DISTLIGHTGBM env");
+      env = new String[]{
+              "PATH=" + System.getenv("PATH"),
+              "JAVA_HOME=" + System.getenv("JAVA_HOME"),
+
+              "HADOOP_HOME=" + System.getenv("HADOOP_HOME"),
+              "HADOOP_HDFS_HOME=" + System.getenv("HADOOP_HDFS_HOME"),
+              "LD_LIBRARY_PATH=" + "./:" + System.getenv("LD_LIBRARY_PATH") + ":" + System.getenv("JAVA_HOME") +
+                      "/jre/lib/amd64/server:" + System.getenv("HADOOP_HOME") + "/lib/native",
+              "CLASSPATH=" + "./:" + System.getenv("CLASSPATH") + ":" + System.getProperty("java.class.path"),
+              "LIGHTGBM_NUM_MACHINE=" + System.getenv(XLearningConstants.Environment.XLEARNING_LIGHTGBM_WORKER_NUM.toString()),
+              "LIGHTGBM_LOCAL_LISTEN_PORT=" + this.lightGBMLocalPort,
+              "PYTHONUNBUFFERED=1",
+              XLearningConstants.Environment.XLEARNING_INPUT_FILE_LIST.toString() + "=" + this.inputFileList
+      };
+    }
+    else if (xlearningAppType.equals("MXNET")) {
       if (singleMx) {
         env = new String[]{
             "PATH=" + System.getenv("PATH"),
@@ -708,24 +726,7 @@ public class XLearningContainer {
             "DMLC_ROLE=" + this.role,
             XLearningConstants.Environment.XLEARNING_INPUT_FILE_LIST.toString() + "=" + this.inputFileList
         };
-      } else if (xlearningAppType.equals("DISTLIGHTGBM")) {
-
-        LOG.info("set DISTLIGHTGBM env");
-        env = new String[]{
-            "PATH=" + System.getenv("PATH"),
-            "JAVA_HOME=" + System.getenv("JAVA_HOME"),
-
-            "HADOOP_HOME=" + System.getenv("HADOOP_HOME"),
-            "HADOOP_HDFS_HOME=" + System.getenv("HADOOP_HDFS_HOME"),
-            "LD_LIBRARY_PATH=" + "./:" + System.getenv("LD_LIBRARY_PATH") + ":" + System.getenv("JAVA_HOME") +
-                "/jre/lib/amd64/server:" + System.getenv("HADOOP_HOME") + "/lib/native",
-            "CLASSPATH=" + "./:" + System.getenv("CLASSPATH") + ":" + System.getProperty("java.class.path"),
-            "LIGHTGBM_NUM_MACHINE=" + System.getenv(XLearningConstants.Environment.XLEARNING_LIGHTGBM_WORKER_NUM.toString()),
-            "LIGHTGBM_LOCAL_LISTEN_PORT=" + this.lightGBMLocalPort,
-            "PYTHONUNBUFFERED=1",
-            XLearningConstants.Environment.XLEARNING_INPUT_FILE_LIST.toString() + "=" + this.inputFileList
-        };
-      } else {
+      }  else {
         String dmlcID;
         if (this.role.equals("worker")) {
           dmlcID = "DMLC_WORKER_ID";

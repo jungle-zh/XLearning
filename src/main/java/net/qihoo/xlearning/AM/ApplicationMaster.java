@@ -855,6 +855,8 @@ public class ApplicationMaster extends CompositeService {
     containerEnv.put(XLearningConstants.Environment.XLEARNING_APP_TYPE.toString(), xlearningAppType);
     if(envs.get(XLearningConstants.Environment.USE_S3.toString()).equalsIgnoreCase("yes")){
       containerEnv.put(XLearningConstants.Environment.USE_S3.toString(), "yes");
+    }else {
+      containerEnv.put(XLearningConstants.Environment.USE_S3.toString(), "no");
     }
     if (xlearningAppType.equals("MXNET") && !singleMx) {
       containerEnv.put(XLearningConstants.Environment.XLEARNING_MXNET_WORKER_NUM.toString(), String.valueOf(workerNum));

@@ -413,7 +413,11 @@ public class Client {
 
     LOG.info("Building environments for the application master");
     Map<String, String> appMasterEnv = new HashMap<>();
-    appMasterEnv.put(XLearningConstants.Environment.USE_S3.toString(),clientArguments.useS3);
+    if (clientArguments.useS3 != null && !clientArguments.useS3.equals("")) {
+      appMasterEnv.put(XLearningConstants.Environment.USE_S3.toString(), clientArguments.useS3);
+    }else {
+      appMasterEnv.put(XLearningConstants.Environment.USE_S3.toString(), "no"); //default hdfs
+    }
 
     if (clientArguments.appType != null && !clientArguments.appType.equals("")) {
       appMasterEnv.put(XLearningConstants.Environment.XLEARNING_APP_TYPE.toString(), clientArguments.appType);
